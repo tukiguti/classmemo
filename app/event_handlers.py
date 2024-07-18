@@ -358,4 +358,5 @@ class EventHandlers:
         self.app.board_text.delete('1.0', 'end')
         for msg in messages:
             self.app.board_text.insert('end', f"{msg['user']}: {msg['message']} ({msg['timestamp']})\n\n")
-        self.app.board_text.configure(state='disabled')  
+        self.app.board_text.configure(state='disabled')
+        self.app.board_text.see('end')  # 最新のメッセージが見えるようにスクロール

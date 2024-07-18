@@ -224,9 +224,17 @@ class App(ctk.CTkFrame):
         self.clear_main_area()
         ctk.CTkLabel(self.main_area, text="掲示板", font=("Helvetica", 24)).pack(pady=20)
 
-        self.board_text = ctk.CTkTextbox(self.main_area, height=300, width=500)
-        self.board_text.pack(pady=10)
-        self.board_text.configure(state='disabled')  # ここで状態を設定
+        # スクロール可能なテキストボックスを作成
+        board_frame = ctk.CTkFrame(self.main_area)
+        board_frame.pack(pady=10, fill='both', expand=True)
+
+        self.board_text = ctk.CTkTextbox(board_frame, height=300, width=500, wrap='word')
+        self.board_text.pack(side='left', fill='both', expand=True)
+
+        scrollbar = ctk.CTkScrollbar(board_frame, command=self.board_text.yview)
+        scrollbar.pack(side='right', fill='y')
+
+        self.board_text.configure(yscrollcommand=scrollbar.set, state='disabled')
 
         self.board_entry = ctk.CTkEntry(self.main_area, width=400)
         self.board_entry.pack(side='left', padx=10)

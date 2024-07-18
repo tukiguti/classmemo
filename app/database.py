@@ -62,12 +62,18 @@ class Database:
             return True
         return False
     
-    def get_board_messages(self):
-        with open(self.board_file, 'r') as f:
-            return json.load(f)
-
     def add_board_message(self, user_name, message):
         messages = self.get_board_messages()
-        messages.append({'user': user_name, 'message': message, 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
-        with open(self.board_file, 'w') as f:
-            json.dump(messages, f)
+        messages.append({
+            'user': user_name,
+            'message': message,
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+        with open(self.board_file, 'w', encoding='utf-8') as f:
+            json.dump(messages, f, ensure_ascii=False, indent=2)
+
+    def get_board_messages(self):
+        if not os.path.exists(self.board_file):
+            return []
+        with open(self.board_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
