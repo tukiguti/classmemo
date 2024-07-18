@@ -8,7 +8,9 @@ import calendar
 import customtkinter as ctk
 from tkinter import messagebox
 import hashlib
+import json
 from datetime import datetime
+from datetime import datetime, timedelta
 
 class EventHandlers:
     def __init__(self, app):
@@ -19,9 +21,7 @@ class EventHandlers:
         password = self.app.password_entry.get()
         hashed_password = hashlib.sha256(password.encode()).hexdigest()
 
-        user = self.app.db.fetchone("SELECT * FROM users WHERE email = ? AND password = ?", (email, hashed_password))
-
-        if user:
+        if self.app.db.verify_user(email, hashed_password):
             self.app.current_user = email
             messagebox.showinfo("ログイン成功", "ログインに成功しました！")
             self.app.show_main_screen()
@@ -40,8 +40,10 @@ class EventHandlers:
         hashed_password = hashlib.sha256(password.encode()).hexdigest()
 
         try:
-            self.app.db.execute("INSERT INTO users (email, name, password) VALUES (?, ?, ?)",
-                                (email, name, hashed_password))
+            # データベースにユーザーを追加
+            self.app.db.add_user(email, name, hashed_password)
+            # ユーザーのディレクトリを作成
+            self.app.db.create_user_directory(email)
             messagebox.showinfo("登録完了", "ユーザー登録が完了しました！")
             self.app.show_login_register_screen()
         except Exception as e:
@@ -55,14 +57,24 @@ class EventHandlers:
     def add_course(self):
         course_name = simpledialog.askstring("授業追加", "新しい授業名を入力してください:")
         if course_name:
-            self.app.db.execute("INSERT INTO courses (user_email, name) VALUES (?, ?)", (self.app.current_user, course_name))
+            courses = self.app.db.get_user_courses(self.app.current_user)
+            new_course = {
+                "id": len(courses) + 1,
+                "name": course_name,
+                "classroom": "",
+                "teacher": "",
+                "day": "",
+                "content": ""
+            }
+            courses.append(new_course)
+            self.app.db.save_user_courses(self.app.current_user, courses)
             self.app.show_main_screen()
 
     def delete_course(self, course_id):
         if messagebox.askyesno("確認", "本当にこの授業を削除しますか？"):
-            self.app.db.execute("DELETE FROM courses WHERE id = ?", (course_id,))
-            self.app.db.execute("DELETE FROM comments WHERE course_id = ?", (course_id,))
-            self.app.db.execute("DELETE FROM files WHERE course_id = ?", (course_id,))
+            courses = self.app.db.get_user_courses(self.app.current_user)
+            courses = [c for c in courses if c['id'] != course_id]
+            self.app.db.save_user_courses(self.app.current_user, courses)
             self.app.show_main_screen()
 
     def rename_course(self, course_id):
@@ -156,16 +168,9 @@ class EventHandlers:
             self.update_comments(course_id)
 
     def mark_event_days(self, cal):
-        year, month = cal.get_displayed_month()
-        first_day = f"{year:04d}-{month:02d}-01"
-        last_day = f"{year:04d}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
-
-        events = self.app.db.fetchall("SELECT date FROM events WHERE user_email = ? AND date BETWEEN ? AND ? GROUP BY date", 
-                                    (self.app.current_user, first_day, last_day))
-
-        for (date,) in events:
-            cal.calevent_create(date=date, text="予定あり", tags=["event"])
-
+        events = self.app.db.get_user_events(self.app.current_user)
+        for event in events:
+            cal.calevent_create(date=event['date'], text="予定あり", tags=["event"])
         cal.tag_config("event", background="light blue")
 
     def show_day_events(self, date):
@@ -225,15 +230,19 @@ class EventHandlers:
                 messagebox.showerror("エラー", "全てのフィールドを入力してください。")
                 return
 
-            try:
-                self.app.db.execute("INSERT INTO events (user_email, date, name, start_time, end_time) VALUES (?, ?, ?, ?, ?)",
-                                    (self.app.current_user, event_date, event_name, start_time, end_time))
-                messagebox.showinfo("追加完了", "予定が追加されました。")
-                add_event_window.destroy()
-                self.app.show_calendar()  # カレンダーを更新
-            except Exception as e:
-                messagebox.showerror("エラー", f"予定の追加に失敗しました: {str(e)}")
-
+            events = self.app.db.get_user_events(self.app.current_user)
+            new_event = {
+                "id": len(events) + 1,
+                "date": event_date,
+                "name": event_name,
+                "start_time": start_time,
+                "end_time": end_time
+            }
+            events.append(new_event)
+            self.app.db.save_user_events(self.app.current_user, events)
+            messagebox.showinfo("追加完了", "予定が追加されました。")
+            add_event_window.destroy()
+            self.app.show_calendar()
         ctk.CTkButton(add_event_window, text="保存", command=save_event).pack(pady=10)
 
     def edit_event(self, date):
@@ -293,20 +302,17 @@ class EventHandlers:
     def delete_event(self, event_id):
         if messagebox.askyesno("確認", "本当にこの予定を削除しますか？"):
             try:
-                self.app.db.execute("DELETE FROM events WHERE id = ?", (event_id,))
+                events = self.app.db.get_user_events(self.app.current_user)
+                events = [e for e in events if e['id'] != event_id]
+                self.app.db.save_user_events(self.app.current_user, events)
                 messagebox.showinfo("削除完了", "予定が削除されました。")
-                self.app.refresh_calendar()
+                self.refresh_calendar()
             except Exception as e:
                 messagebox.showerror("エラー", f"予定の削除に失敗しました: {str(e)}")
 
     def refresh_calendar(self):
-        for child in self.app.root.winfo_children():
-            if isinstance(child, ttk.Notebook):
-                for tab in child.winfo_children():
-                    if child.tab(tab)['text'] == 'カレンダー':
-                        self.app.show_calendar(tab)
-                        break
-                break
+        self.app.show_calendar()
+        self.app.show_dashboard()  # ダッシュボードも更新
 
     def display_upcoming_events(self, parent_frame):
         # 現在の日付から2週間分の予定を取得
@@ -332,4 +338,24 @@ class EventHandlers:
                 time_str = f"{event[2]} - {event[3]}"
                 
                 ctk.CTkLabel(event_frame, text=f"{date_str} {time_str}").pack(side="left", padx=5)
-                ctk.CTkLabel(event_frame, text=event[1]).pack(side="left", padx=5)        
+                ctk.CTkLabel(event_frame, text=event[1]).pack(side="left", padx=5)    
+
+    def post_board_message(self):
+        message = self.app.board_entry.get()
+        if message:
+            user = self.app.db.get_user(self.app.current_user)
+            if user:
+                user_name = user['name']
+                self.app.db.add_board_message(user_name, message)
+                self.app.board_entry.delete(0, 'end')
+                self.update_board()
+            else:
+                messagebox.showerror("エラー", "ユーザー情報が見つかりません。")
+
+    def update_board(self):
+        messages = self.app.db.get_board_messages()
+        self.app.board_text.configure(state='normal')
+        self.app.board_text.delete('1.0', 'end')
+        for msg in messages:
+            self.app.board_text.insert('end', f"{msg['user']}: {msg['message']} ({msg['timestamp']})\n\n")
+        self.app.board_text.configure(state='disabled')  

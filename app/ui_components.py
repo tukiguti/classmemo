@@ -3,6 +3,7 @@ from tkinter import messagebox
 from tkcalendar import Calendar
 from event_handlers import EventHandlers
 from database import Database
+from datetime import datetime, timedelta
 
 class App(ctk.CTkFrame):
     def __init__(self, master):
@@ -69,6 +70,7 @@ class App(ctk.CTkFrame):
         ctk.CTkButton(self.sidebar, text="ダッシュボード", command=self.show_dashboard).pack(pady=10)
         ctk.CTkButton(self.sidebar, text="授業一覧", command=self.show_courses_list).pack(pady=10)
         ctk.CTkButton(self.sidebar, text="カレンダー", command=self.show_calendar).pack(pady=10)
+        ctk.CTkButton(self.sidebar, text="掲示板", command=self.show_board).pack(pady=10)  # 新しく追加
         ctk.CTkButton(self.sidebar, text="ログアウト", command=self.event_handlers.logout).pack(pady=10)
 
         self.show_dashboard()
@@ -88,20 +90,30 @@ class App(ctk.CTkFrame):
         events_list.pack(fill="both", expand=True, padx=10, pady=5)
 
         # 予定を取得して表示
-        self.event_handlers.display_upcoming_events(events_list)
+        events = self.db.get_user_events(self.current_user)
+        today = datetime.now().date()
+        upcoming_events = [e for e in events if datetime.strptime(e['date'], "%Y-%m-%d").date() >= today]
+        upcoming_events.sort(key=lambda x: (x['date'], x['start_time']))
 
-        # その他のダッシュボード要素をここに追加
-        # 例: 最近の授業、未完了のタスクなど
+        if not upcoming_events:
+            ctk.CTkLabel(events_list, text="予定はありません").pack(pady=5)
+        else:
+            for event in upcoming_events[:5]:  # 最大5件表示
+                event_frame = ctk.CTkFrame(events_list)
+                event_frame.pack(fill="x", padx=5, pady=2)
+                ctk.CTkLabel(event_frame, text=f"{event['date']} {event['start_time']}-{event['end_time']}").pack(side="left", padx=5)
+                ctk.CTkLabel(event_frame, text=event['name']).pack(side="left", padx=5)
+
 
     def show_courses_list(self):
         self.clear_main_area()
         ctk.CTkLabel(self.main_area, text="授業一覧", font=("Helvetica", 24)).pack(pady=20)
-        courses = self.db.fetchall("SELECT id, name FROM courses WHERE user_email = ?", (self.current_user,))
-        for course_id, course_name in courses:
+        courses = self.db.get_user_courses(self.current_user)
+        for course in courses:
             course_frame = ctk.CTkFrame(self.main_area)
             course_frame.pack(fill="x", padx=10, pady=5)
-            ctk.CTkButton(course_frame, text=course_name, command=lambda c=course_id: self.show_course_details(c)).pack(side="left", padx=5)
-            ctk.CTkButton(course_frame, text="削除", command=lambda c=course_id: self.event_handlers.delete_course(c)).pack(side="right", padx=5)
+            ctk.CTkButton(course_frame, text=course['name'], command=lambda c=course['id']: self.show_course_details(c)).pack(side="left", padx=5)
+            ctk.CTkButton(course_frame, text="削除", command=lambda c=course['id']: self.event_handlers.delete_course(c)).pack(side="right", padx=5)
 
         ctk.CTkButton(self.main_area, text="授業を追加", command=self.event_handlers.add_course).pack(pady=10)
 
@@ -191,19 +203,37 @@ class App(ctk.CTkFrame):
         events_window.title(f"{date}の予定")
         events_window.geometry("400x300")
         
-        events = self.db.fetchall("SELECT id, name, start_time, end_time FROM events WHERE user_email = ? AND date = ?", 
-                                  (self.current_user, date))
+        events = self.db.get_user_events(self.current_user)
+        day_events = [e for e in events if e['date'] == date]
         
-        if events:
-            for event in events:
+        if day_events:
+            for event in day_events:
                 event_frame = ctk.CTkFrame(events_window)
                 event_frame.pack(fill="x", padx=10, pady=5)
-                ctk.CTkLabel(event_frame, text=f"{event[1]} ({event[2]}-{event[3]})").pack(side="left", padx=5)
-                ctk.CTkButton(event_frame, text="削除", command=lambda e=event[0]: self.event_handlers.delete_event(e, events_window)).pack(side="right", padx=5)
+                ctk.CTkLabel(event_frame, text=f"{event['name']} ({event['start_time']}-{event['end_time']})").pack(side="left", padx=5)
+                ctk.CTkButton(event_frame, text="削除", command=lambda e=event['id']: self.event_handlers.delete_event(e)).pack(side="right", padx=5)
         else:
             ctk.CTkLabel(events_window, text="この日の予定はありません").pack(pady=20)
         
-        ctk.CTkButton(events_window, text="予定を追加", command=lambda: self.show_add_event_window(date)).pack(pady=10)
+        ctk.CTkButton(events_window, text="予定を追加", command=lambda: self.event_handlers.add_event(date)).pack(pady=10)
 
     def refresh_calendar(self):
         self.show_calendar()
+
+    def show_board(self):
+        self.clear_main_area()
+        ctk.CTkLabel(self.main_area, text="掲示板", font=("Helvetica", 24)).pack(pady=20)
+
+        self.board_text = ctk.CTkTextbox(self.main_area, height=300, width=500)
+        self.board_text.pack(pady=10)
+        self.board_text.configure(state='disabled')  # ここで状態を設定
+
+        self.board_entry = ctk.CTkEntry(self.main_area, width=400)
+        self.board_entry.pack(side='left', padx=10)
+
+        ctk.CTkButton(self.main_area, text="投稿", command=self.event_handlers.post_board_message).pack(side='left')
+
+        self.event_handlers.update_board()
+
+    def update_board(self):
+        self.event_handlers.update_board()
