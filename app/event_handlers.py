@@ -84,31 +84,36 @@ class EventHandlers:
             self.app.show_course_screen(course_id)
 
     def edit_course_content(self, course_id):
+        courses = self.app.db.get_user_courses(self.app.current_user)
+        course = next((c for c in courses if c['id'] == course_id), None)
+        
+        if course is None:
+            messagebox.showerror("エラー", "授業が見つかりません。")
+            return
+
         edit_content_window = ctk.CTkToplevel(self.app.master)
         edit_content_window.title("授業内容編集")
         edit_content_window.geometry("400x600")
 
-        course = self.app.db.fetchone("SELECT * FROM courses WHERE id = ?", (course_id,))
-
         ctk.CTkLabel(edit_content_window, text="教室:").pack(pady=5)
         classroom_entry = ctk.CTkEntry(edit_content_window, width=300)
         classroom_entry.pack(pady=5)
-        classroom_entry.insert(0, course[3] or "")
+        classroom_entry.insert(0, course.get('classroom', ''))
 
         ctk.CTkLabel(edit_content_window, text="担当教員:").pack(pady=5)
         teacher_entry = ctk.CTkEntry(edit_content_window, width=300)
         teacher_entry.pack(pady=5)
-        teacher_entry.insert(0, course[4] or "")
+        teacher_entry.insert(0, course.get('teacher', ''))
 
         ctk.CTkLabel(edit_content_window, text="授業曜日:").pack(pady=5)
         day_entry = ctk.CTkEntry(edit_content_window, width=300)
         day_entry.pack(pady=5)
-        day_entry.insert(0, course[5] or "")
+        day_entry.insert(0, course.get('day', ''))
 
         ctk.CTkLabel(edit_content_window, text="授業内容:").pack(pady=5)
         content_text = ctk.CTkTextbox(edit_content_window, height=200, width=300)
         content_text.pack(pady=5)
-        content_text.insert("1.0", course[6] or "")
+        content_text.insert("1.0", course.get('content', ''))
 
         def save_content():
             new_classroom = classroom_entry.get()
@@ -116,10 +121,13 @@ class EventHandlers:
             new_day = day_entry.get()
             new_content = content_text.get("1.0", ctk.END).strip()
 
+            course['classroom'] = new_classroom
+            course['teacher'] = new_teacher
+            course['day'] = new_day
+            course['content'] = new_content
+
             try:
-                self.app.db.execute("UPDATE courses SET classroom = ?, teacher = ?, day = ?, content = ? WHERE id = ?",
-                                    (new_classroom, new_teacher, new_day, new_content, course_id))
-                self.app.db.conn.commit()  # この行を追加
+                self.app.db.save_user_courses(self.app.current_user, courses)
                 messagebox.showinfo("保存完了", "授業内容が保存されました！")
                 edit_content_window.destroy()
                 self.app.show_course_details(course_id)
@@ -170,22 +178,23 @@ class EventHandlers:
     def mark_event_days(self, cal):
         events = self.app.db.get_user_events(self.app.current_user)
         for event in events:
-            cal.calevent_create(date=event['date'], text="予定あり", tags=["event"])
+            event_date = datetime.strptime(event['date'], "%Y-%m-%d").date()
+            cal.calevent_create(date=event_date, text="予定あり", tags=["event"])
         cal.tag_config("event", background="light blue")
 
     def show_day_events(self, date):
         event_window = tk.Toplevel(self.app.root)
         event_window.title(f"{date}の予定")
 
-        events = self.app.db.fetchall("SELECT id, name, start_time, end_time FROM events WHERE user_email = ? AND date = ?", 
-                                      (self.app.current_user, date))
+        events = self.app.db.get_user_events(self.app.current_user)
+        day_events = [e for e in events if e['date'] == date]
 
-        if events:
-            for event in events:
+        if day_events:
+            for event in day_events:
                 event_frame = tk.Frame(event_window)
                 event_frame.pack(fill=tk.X, padx=5, pady=5)
-                tk.Label(event_frame, text=f"{event[1]} ({event[2]}-{event[3]})").pack(side=tk.LEFT)
-                tk.Button(event_frame, text="削除", command=lambda e=event[0]: self.delete_event(e)).pack(side=tk.RIGHT)
+                tk.Label(event_frame, text=f"{event['name']} ({event['start_time']}-{event['end_time']})").pack(side=tk.LEFT)
+                tk.Button(event_frame, text="削除", command=lambda e=event['id']: self.delete_event(e)).pack(side=tk.RIGHT)
         else:
             tk.Label(event_window, text="この日の予定はありません").pack(pady=5)
 

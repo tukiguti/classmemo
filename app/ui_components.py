@@ -145,25 +145,26 @@ class App(ctk.CTkFrame):
 
     def show_course_details(self, course_id):
         self.clear_main_area()
-        course = self.db.fetchone("SELECT * FROM courses WHERE id = ?", (course_id,))
+        courses = self.db.get_user_courses(self.current_user)
+        course = next((c for c in courses if c['id'] == course_id), None)
         
         if course is None:
             ctk.CTkLabel(self.main_area, text="授業が見つかりません", font=("Helvetica", 24)).pack(pady=20)
             return
 
-        ctk.CTkLabel(self.main_area, text=f"{course[2]}の詳細", font=("Helvetica", 24)).pack(pady=20)
+        ctk.CTkLabel(self.main_area, text=f"{course['name']}の詳細", font=("Helvetica", 24)).pack(pady=20)
         
         content_frame = ctk.CTkFrame(self.main_area)
         content_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
-        ctk.CTkLabel(content_frame, text=f"教室: {course[3] or '未設定'}").pack(anchor="w", pady=5)
-        ctk.CTkLabel(content_frame, text=f"担当教員: {course[4] or '未設定'}").pack(anchor="w", pady=5)
-        ctk.CTkLabel(content_frame, text=f"授業曜日: {course[5] or '未設定'}").pack(anchor="w", pady=5)
+        ctk.CTkLabel(content_frame, text=f"教室: {course.get('classroom', '未設定')}").pack(anchor="w", pady=5)
+        ctk.CTkLabel(content_frame, text=f"担当教員: {course.get('teacher', '未設定')}").pack(anchor="w", pady=5)
+        ctk.CTkLabel(content_frame, text=f"授業曜日: {course.get('day', '未設定')}").pack(anchor="w", pady=5)
         
         ctk.CTkLabel(content_frame, text="授業内容:").pack(anchor="w", pady=5)
         content_text = ctk.CTkTextbox(content_frame, height=200)
         content_text.pack(fill="both", expand=True, pady=5)
-        content_text.insert("1.0", course[6] or "授業内容がまだ設定されていません。")
+        content_text.insert("1.0", course.get('content', "授業内容がまだ設定されていません。"))
         content_text.configure(state="disabled")
         
         button_frame = ctk.CTkFrame(self.main_area)
